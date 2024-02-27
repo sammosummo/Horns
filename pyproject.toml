@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "horns"
+version = "0.2.0"
+description = "Horn's parallel analysis in Python."
+authors = ["Sam Mathias"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/sammosummo/Horns"
+repository = "https://github.com/sammosummo/Horns"
+documentation = "https://github.com/sammosummo/Horns"
+keywords = ["psychology", "psychometrics", "factor analysis", "parallel analysis", "eigenvalues", "eigenvectors"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+numpy = "^1.26.4"
+numba-stats = "^1.7.0"
+scipy = "^1.12.0"
+tqdm = "^4.66.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
