@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "horns"
-version = "0.2.0"
+version = "0.3.0"
 description = "Horn's parallel analysis in Python."
 authors = ["Sam Mathias"]
 license = "MIT"

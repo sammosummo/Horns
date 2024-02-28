@@ -233,6 +233,28 @@ def _crosstab(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     return out
 
 
+@njit(parallel=True, fastmath=True)
+def _pxy(p: np.ndarray) -> np.ndarray:
+    """Apply the quantile function to the probabilities padded with -23 and 23.
+
+    Args:
+        p: Probabilities.
+
+    Returns:
+        Marginal probabilities.
+
+    Raises:
+        AssertionError: If the resulting array is not strictly increasing.
+
+    """
+    q = np.empty(p.size + 2, dtype=np.float64)
+    q[0] = -23.0
+    q[1:-1] = quantile(np.cumsum(p))
+    q[-1] = 23.0
+    assert np.all(np.diff(q) > 0)
+    return q
+
+
 def polychoric(x: np.ndarray, y: np.ndarray) -> float:
     """Estimate the polychoric correlation coefficient between two arrays using the
     two-step method described by `Martinson and Hamdan (1972)`_.
@@ -254,16 +276,11 @@ def polychoric(x: np.ndarray, y: np.ndarray) -> float:
     """
     t = crosstab(x, y).count
     tt = np.sum(t)
-    lo = np.array([-23])
-    hi = np.array([23])
-    
-    px = quantile(np.cumsum(np.sum(t, axis=1))[:-1] / tt)
-    px = np.concatenate((lo, px, hi))
-    
-    py = quantile(np.cumsum(np.sum(t, axis=0))[:-1] / tt)
-    py = np.concatenate((lo, py, hi))
-    
-    return optimize.fminbound(_nll, -0.999, 0.999, args=(t, px, py))  # noqa
+    px = np.sum(t, axis=1)[:-1] / tt
+    qx = _pxy(px)
+    py = np.sum(t, axis=0)[:-1] / tt
+    qy = _pxy(py)
+    return optimize.fminbound(_nll, -0.999, 0.999, args=(t, qx, qy))  # noqa
 
 
 def _nll(rho: float, t: np.ndarray, px: np.ndarray, py: np.ndarray) -> float:
