@@ -1,16 +1,16 @@
 from logging import getLogger
 from multiprocessing import Pool
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 from matplotlib import pyplot as plt
 
 from numba import njit, prange
 from numba.core import config
+from numba_stats import norm
 from scipy import optimize
 from scipy.stats import multivariate_normal
 from scipy.stats.contingency import crosstab
-from numba_stats import norm
 from tqdm import tqdm
 
 # ensure that numba is using the threading layer
@@ -69,6 +69,22 @@ def simulate(data: np.ndarray, meth: str = "bootstrap") -> np.ndarray:
         raise ValueError(f"Method {meth} not recognised.")
 
     return out
+
+
+@njit(fastmath=True)
+def _sum(x: np.ndarray) -> float:
+    """Calculate the sum of an array.
+
+    This function is necessary to JIT the :func:`np.sum` function.
+
+    Args:
+        x: Array.
+
+    Returns:
+        Sum.
+
+    """
+    return np.sum(x)
 
 
 @njit(parallel=True, fastmath=True)
@@ -155,7 +171,7 @@ def pearson_matrices(a: np.ndarray) -> np.ndarray:
 def phi(x: np.ndarray) -> np.ndarray:
     """Calculate the density of the standard normal distribution at the given values.
 
-    JIT-compiled version of the function from ``numba-stats``.
+    JIT-compiled version of :func:`norm.pdf` from ``numba-stats``.
 
     Args:
         x: values.
@@ -171,7 +187,7 @@ def phi(x: np.ndarray) -> np.ndarray:
 def quantile(p: np.ndarray) -> np.ndarray:
     """Quantile function of the standard normal distribution.
 
-    JIT-compiled version of the function from ``numba-stats``.
+    JIT-compiled version of :func:`norm.ppf` from ``numba-stats``.
 
     Args:
         p: Probabilities.
@@ -212,7 +228,8 @@ def polyserial(x: np.ndarray, y: np.ndarray) -> float:
 def _crosstab(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """Create a contingency table from two arrays.
 
-    This appears to be slightly slower than scipy's :func:`crosstab` even when JITed.
+    This appears to be slightly slower than scipy's :func:`crosstab` even when JITed, so
+    we are currently using the scipy function instead.
 
     Args:
         x: First array of data.
@@ -236,6 +253,8 @@ def _crosstab(x: np.ndarray, y: np.ndarray) -> np.ndarray:
 @njit(parallel=True, fastmath=True)
 def _pxy(p: np.ndarray) -> np.ndarray:
     """Apply the quantile function to the probabilities padded with -23 and 23.
+
+    This wrapper function is necessary to JIT the :func:`quantile` function.
 
     Args:
         p: Probabilities.
@@ -275,7 +294,7 @@ def polychoric(x: np.ndarray, y: np.ndarray) -> float:
 
     """
     t = crosstab(x, y).count
-    tt = np.sum(t)
+    tt = _sum(t)
     px = np.sum(t, axis=1)[:-1] / tt
     qx = _pxy(px)
     py = np.sum(t, axis=0)[:-1] / tt
@@ -302,12 +321,12 @@ def _nll(rho: float, t: np.ndarray, px: np.ndarray, py: np.ndarray) -> float:
     out = np.empty_like(t, dtype=float)
     dist = multivariate_normal(mean=[0, 0], cov=[[1, rho], [rho, 1]])
 
-    for i in prange(1, px.size):
-        for j in prange(1, py.size):
+    for i in range(1, px.size):
+        for j in range(1, py.size):
             ll = dist.logcdf((px[i], py[j]), lower_limit=(px[i - 1], py[j - 1]))
             out[i - 1, j - 1] = ll
 
-    return -1 * np.sum(t * out)
+    return -1 * _sum(t * out)
 
 
 def polychoric_matrix(data: np.ndarray) -> np.ndarray:
@@ -653,3 +672,53 @@ def parallel_analysis(
         return results
 
     return factors
+
+
+def factor_analysis(
+    data: np.ndarray, factors: Optional[int], **kwargs: Any,
+) -> dict[str, Any]:
+    """Perform factor analysis.
+
+    Calls ``factanal`` from R's ``stats`` package (via ``rpy2``). This is not the most
+    computationally efficient way to perform factor analysis in Python, but it works
+    reliably.
+
+    Args:
+        data: Array containing the raw data.
+        factors: Number of factors to extract or ``None`` to perform parallel analysis.
+        **kwargs: Additional arguments to pass to ``factanal``.
+
+    Returns:
+        Dictionary containing the results.
+
+    """
+    try:
+        import rpy2.robjects as ro
+        from rpy2.robjects.packages import importr
+
+    except ImportError:
+        raise ImportError("You must have rpy2 installed to use this function.")
+
+    importr('base')
+    importr('stats')
+
+    if factors is None:
+        method = "parallel"
+        factors = parallel_analysis(data)
+
+    mat = correlation_matrix(data)
+    fa = ro.r.factanal(
+        covmat=mat, factors=factors, n_obs=data.shape[0], **kwargs,
+    )
+
+    keys = (
+        "loadings",
+        "uniquenesses",
+        "correlation",
+        "criteria",
+        "factors",
+        "dof",
+        "method",
+        "rotmat",
+    )
+    return dict(zip(keys, fa))

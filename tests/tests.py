@@ -271,7 +271,7 @@ class Tests(TestCase):
         import numpy as np
         from horns import all_eigenvalues, pearson_matrices
 
-        a = np.random.rand(10, 100, 10)
+        a = np.random.rand(10, 1000, 10)
         a = pearson_matrices(a)
         out = all_eigenvalues(a, "pca")
         out2 = all_eigenvalues(a, "fa")
